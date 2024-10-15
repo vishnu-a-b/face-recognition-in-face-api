@@ -8,7 +8,6 @@ const pwaConfig = {
   skipWaiting: true,
 };
 
-// Create the Next.js configuration
 const nextConfig = {
 };
 

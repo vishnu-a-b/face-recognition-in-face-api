@@ -1,101 +1,149 @@
-import Image from "next/image";
+"use client";
+import { useEffect } from "react";
+import * as faceapi from "face-api.js";
 
-export default function Home() {
+interface FaceDescriptor {
+  name: string;
+  descriptor: number[];
+}
+
+interface AttendanceRecord {
+  name: string;
+  date: string;
+  time: string;
+}
+
+const Home = () => {
+  useEffect(() => {
+    const setupCamera = async () => {
+      const video = document.getElementById("video") as HTMLVideoElement;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 720, height: 560 },
+      });
+      video.srcObject = stream;
+    };
+
+    const loadModels = async () => {
+      await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
+      await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
+      await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
+    };
+
+    setupCamera();
+    loadModels();
+  }, []);
+
+  const detectFace = async () => {
+    const video = document.getElementById("video") as HTMLVideoElement;
+    const options = new faceapi.TinyFaceDetectorOptions();
+    const detections = await faceapi
+      .detectSingleFace(video, options)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    return detections?.descriptor || null;
+  };
+
+  const recognizeFace = async () => {
+    const faceDescriptor = await detectFace();
+    if (faceDescriptor) {
+      const registeredFaces: FaceDescriptor[] = JSON.parse(
+        localStorage.getItem("registeredFaces") || "[]"
+      );
+      const labeledDescriptors = registeredFaces.map(
+        (f) =>
+          new faceapi.LabeledFaceDescriptors(f.name, [
+            new Float32Array(f.descriptor),
+          ])
+      );
+      const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors);
+      const bestMatch = faceMatcher.findBestMatch(faceDescriptor);
+
+      if (bestMatch.label !== "unknown") {
+        markAttendance(bestMatch.label);
+        alert(`Face recognized! Attendance marked for ${bestMatch.label}.`);
+      } else {
+        alert("Face not recognized.");
+      }
+    }
+  };
+
+  const markAttendance = (name: string) => {
+    const attendanceRecords: AttendanceRecord[] = JSON.parse(
+      localStorage.getItem("attendanceRecords") || "[]"
+    );
+    const date = new Date().toLocaleDateString("en-IN");
+    const time = new Date().toLocaleTimeString("en-IN");
+    attendanceRecords.push({ name, date, time });
+    localStorage.setItem(
+      "attendanceRecords",
+      JSON.stringify(attendanceRecords)
+    );
+  };
+
+  const exportAttendance = () => {
+    const attendanceRecords: AttendanceRecord[] = JSON.parse(
+      localStorage.getItem("attendanceRecords") || "[]"
+    );
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      ["Name,Date,Time"]
+        .concat(
+          attendanceRecords.map(
+            (record) => `${record.name},${record.date},${record.time}`
+          )
+        )
+        .join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "attendance.csv");
+    document.body.appendChild(link);
+    link.click();
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gray-700 via-gray-900 to-black px-6 sm:px-10 md:px-20 pt-10 md:pt-16 min-h-screen">
+      <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-12 mt-10 md:mt-16">
+        {/* Video Section */}
+        <div className="w-full md:w-1/2 flex justify-center">
+          <video
+            id="video"
+            autoPlay
+            muted
+            className="w-full max-w-[550px] h-auto rounded-3xl bg-slate-600 shadow-lg shadow-slate-500 border border-slate-400"
+          ></video>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Action Section */}
+        <div className="relative w-full max-w-[550px] h-auto md:h-[450px] bg-black/40 shadow-lg rounded-3xl p-6 md:p-10">
+          <button
+            id="recognize"
+            onClick={recognizeFace}
+            className="w-full h-14 bg-gray-100 text-lg md:text-xl font-medium border border-gray-300 rounded-lg hover:scale-105 hover:shadow-lg transition-transform mt-4"
+          >
+            Click for Attendance
+          </button>
+          <p className="text-sm mt-2 text-slate-100 text-center">
+            *Please put your face in front of the webcam.
+          </p>
+
+          {/* Action Buttons at Bottom */}
+          <div className="pt-10 flex gap-4">
+            <button className="py-2 px-4 bg-gray-200 font-medium rounded-lg border-black hover:scale-105 hover:shadow-lg transition-transform">
+              <a href="/register">Register Face</a>
+            </button>
+            <button
+              id="export"
+              onClick={exportAttendance}
+              className="py-2 px-4 bg-gray-200 font-medium rounded-lg border-black hover:scale-105 hover:shadow-lg transition-transform"
+            >
+              Export Attendance
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
-}
+};
+
+export default Home;
